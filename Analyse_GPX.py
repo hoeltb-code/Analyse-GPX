@@ -730,7 +730,7 @@ def kml_km_markers_bytes(
 #----------------------------------------------------------
 st.set_page_config(page_title="Analyse GPX", layout="wide")
 
-st.title("📈 Analyse de trace GPX")
+st.title("📈 Analyse de trace GPX (FR)")
 st.caption("Slider de tronçon, métriques locales, répartition de pente, segments remarquables (tolérance), export PNG/CSV.")
 
 # Sidebar
