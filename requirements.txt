@@ -3,4 +3,4 @@ numpy
 pandas
 gpxpy
 matplotlib
-st-aggrid
+streamlit-aggrid
