@@ -1,6 +1,8 @@
 streamlit
-numpy
 pandas
+numpy
+altair
 gpxpy
 matplotlib
-streamlit-aggrid
+fitdecode
+openai
