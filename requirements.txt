@@ -6,3 +6,5 @@ gpxpy
 matplotlib
 fitdecode
 openai
+vl-convert-python
+
