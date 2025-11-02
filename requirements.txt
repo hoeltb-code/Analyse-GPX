@@ -7,4 +7,5 @@ matplotlib
 fitdecode
 openai
 vl-convert-python
+altair-saver
 
