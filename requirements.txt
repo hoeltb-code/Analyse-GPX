@@ -8,4 +8,5 @@ fitdecode
 openai
 vl-convert-python
 altair-saver
+streamlit-aggrid
 
