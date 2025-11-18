@@ -422,7 +422,7 @@ def df_segment_to_kml_bytes(
     <Placemark>
       <name>{name}</name>
       <Style>
-        <LineStyle><color>ff00ffff</color><width>6</width></LineStyle>
+        <LineStyle><color>ff00ffff</color><width>12</width></LineStyle>
       </Style>
       <LineString>
         <tessellate>1</tessellate>
