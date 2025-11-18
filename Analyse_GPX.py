@@ -422,7 +422,7 @@ def df_segment_to_kml_bytes(
     <Placemark>
       <name>{name}</name>
       <Style>
-        <LineStyle><color>ff00ffff</color><width>12</width></LineStyle>
+        <LineStyle><color>ff00ffff</color><width>10</width></LineStyle>
       </Style>
       <LineString>
         <tessellate>1</tessellate>
@@ -640,7 +640,7 @@ def df_segment_to_kml_colore_par_pente_bucketise_bytes(
     unique_colors = sorted(set(col for col, _, _, _ in runs))
     styles_xml = "\n".join(
         f"""    <Style id="line_{idx}">
-      <LineStyle><color>{col}</color><width>5</width></LineStyle>
+      <LineStyle><color>{col}</color><width>9</width></LineStyle>
     </Style>""" for idx, col in enumerate(unique_colors)
     )
     color_to_style = {c: f"line_{i}" for i, c in enumerate(unique_colors)}
