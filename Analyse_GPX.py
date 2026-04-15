@@ -959,16 +959,6 @@ kml_export_block(
     min_run_m=min_color_run_m             # 👈 NOUVEAU
 )
 
-
-st.subheader("📏 Détail du tronçon")
-
-pas_affichage_km = st.selectbox(
-    "Afficher les données par tranche de :",
-    options=[1, 2, 5, 10],
-    index=0,
-    format_func=lambda x: f"{x} km"
-)
-
 # === DÉTAIL PAR KILOMÈTRE DU TRONÇON ===
 st.subheader("📏 Détail du tronçon")
 
@@ -1243,20 +1233,17 @@ else:
             )
 
 
-            # === DÉTAIL PAR KILOMÈTRE — MONTÉE SÉLÉCTIONNÉE ===
-            st.markdown("**📏 Détail par kilomètre — montée sélectionnée**")
-
+            # === DÉTAIL PAR TRANCHE — MONTÉE SÉLECTIONNÉE ===
+            st.markdown(f"**📏 Détail par tranche de {int(pas_affichage_km)} km — montée sélectionnée**")
+            
             total_km_trace = float(df["dist_km_cal"].iloc[-1])
-            km_start_int = int(np.floor(km0))
-            km_end_int = int(np.ceil(km1))
-
-            rows_up = []
+            
             pas = float(pas_affichage_km)
             start_bin = math.floor(km0 / pas) * pas
             end_bin = math.ceil(km1 / pas) * pas
             
+            rows_up = []
             current = start_bin
-            rows_up = []   # ou rows_dn
             
             while current < end_bin:
                 a = max(current, km0)
@@ -1269,7 +1256,7 @@ else:
                 df_k = _slice_km_segment(df, a, b)
                 longueur_m, dplus_m, dminus_m, pente_moy_pct = _metrics_on_slice(df_k)
             
-                rows_up.append({   # ou rows_dn
+                rows_up.append({
                     "Km départ": round(a, 1),
                     "Km arrivée": round(b, 1),
                     "Longueur (km)": round((b - a), 1),
@@ -1280,34 +1267,18 @@ else:
                 })
             
                 current += pas
-
-                df_k = _slice_km_segment(df, a, b)
-                longueur_m, dplus_m, dminus_m, pente_moy_pct = _metrics_on_slice(df_k)
-
-                rows_up.append({
-                    "Km départ": round(a, 1),
-                    "Km arrivée": round(b, 1),
-                    "Longueur (km)": round((b - a), 1),
-                    "D+ (m)": int(round(dplus_m)),
-                    "D- (m)": int(round(dminus_m)),
-                    # pente signée avec % et sans décimale
-                    "Pente moy. (%)": f"{pente_moy_pct:+.0f}%",
-                    "Km restant (trace)": round(max(total_km_trace - b, 0.0), 1),
-                })
-
+            
             table_km_up = pd.DataFrame(rows_up)
+            
             if table_km_up.empty:
-                st.info("Aucun kilomètre complet dans la plage sélectionnée de la montée.")
+                st.info("Aucune tranche disponible dans la plage sélectionnée de la montée.")
             else:
                 st.dataframe(table_km_up, use_container_width=True, hide_index=True)
                 df_to_csv_download_button(
                     table_km_up,
-                    "⬇️ Exporter le détail par km (montée) — CSV",
-                    f"detail_par_km_montee_{km0:.1f}-{km1:.1f}.csv"
+                    f"⬇️ Exporter le détail par tranche de {int(pas_affichage_km)} km (montée) — CSV",
+                    f"detail_par_{int(pas_affichage_km)}km_montee_{km0:.1f}-{km1:.1f}.csv"
                 )
-
-    else:
-        st.caption("💡 Astuce : sélectionne une ligne du tableau pour voir le segment et sa répartition de pentes.")
 
 
 # ===== Descentes =====
@@ -1446,43 +1417,51 @@ else:
             )
 
 
-            # === DÉTAIL PAR KILOMÈTRE — DESCENTE SÉLÉCTIONNÉE ===
-            st.markdown("**📏 Détail par kilomètre — descente sélectionnée**")
-
-            total_km_trace = float(df["dist_km"].iloc[-1])
-            km_start_int = int(np.floor(km0))
-            km_end_int = int(np.ceil(km1))
-
+            # === DÉTAIL PAR TRANCHE — DESCENTE SÉLECTIONNÉE ===
+            st.markdown(f"**📏 Détail par tranche de {int(pas_affichage_km)} km — descente sélectionnée**")
+            
+            total_km_trace = float(df["dist_km_cal"].iloc[-1])
+            
+            pas = float(pas_affichage_km)
+            start_bin = math.floor(km0 / pas) * pas
+            end_bin = math.ceil(km1 / pas) * pas
+            
             rows_dn = []
-            for k in range(km_start_int, km_end_int):
-                a = max(float(k), km0)
-                b = min(float(k + 1), km1)
+            current = start_bin
+            
+            while current < end_bin:
+                a = max(current, km0)
+                b = min(current + pas, km1)
+            
                 if b <= a:
+                    current += pas
                     continue
-
+            
                 df_k = _slice_km_segment(df, a, b)
                 longueur_m, dplus_m, dminus_m, pente_moy_pct = _metrics_on_slice(df_k)
-
+            
                 rows_dn.append({
                     "Km départ": round(a, 1),
                     "Km arrivée": round(b, 1),
                     "Longueur (km)": round((b - a), 1),
                     "D+ (m)": int(round(dplus_m)),
                     "D- (m)": int(round(dminus_m)),
-                    # pente signée (elle sera souvent négative en descente)
                     "Pente moy. (%)": f"{pente_moy_pct:+.0f}%",
                     "Km restant (trace)": round(max(total_km_trace - b, 0.0), 1),
                 })
-
+            
+                current += pas
+            
             table_km_dn = pd.DataFrame(rows_dn)
+            
             if table_km_dn.empty:
-                st.info("Aucun kilomètre complet dans la plage sélectionnée de la descente.")
+                st.info("Aucune tranche disponible dans la plage sélectionnée de la descente.")
             else:
                 st.dataframe(table_km_dn, use_container_width=True, hide_index=True)
                 df_to_csv_download_button(
                     table_km_dn,
-                    "⬇️ Exporter le détail par km (descente) — CSV",
-                    f"detail_par_km_descente_{km0:.1f}-{km1:.1f}.csv"
+                    f"⬇️ Exporter le détail par tranche de {int(pas_affichage_km)} km (descente) — CSV",
+                    f"detail_par_{int(pas_affichage_km)}km_descente_{km0:.1f}-{km1:.1f}.csv"
                 )
 
 
