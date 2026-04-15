@@ -960,10 +960,26 @@ kml_export_block(
 )
 
 
+st.subheader("📏 Détail du tronçon")
+
+pas_affichage_km = st.selectbox(
+    "Afficher les données par tranche de :",
+    options=[1, 2, 5, 10],
+    index=0,
+    format_func=lambda x: f"{x} km"
+)
 
 # === DÉTAIL PAR KILOMÈTRE DU TRONÇON ===
-st.subheader("📏 Détail par kilomètre du tronçon")
+st.subheader("📏 Détail du tronçon")
 
+pas_affichage_km = st.selectbox(
+    "Afficher les données par tranche de :",
+    options=[1, 2, 5, 10],
+    index=0,
+    format_func=lambda x: f"{x} km"
+)
+
+# === DÉTAIL DU TRONÇON PAR PAS CHOISI ===
 def _slice_km_segment(df_full: pd.DataFrame, km_a: float, km_b: float) -> pd.DataFrame:
     """
     Sous-échantillonne df_full sur [km_a, km_b] selon la distance recalée,
@@ -1011,39 +1027,48 @@ def _metrics_on_slice(df_slice: pd.DataFrame):
     return longueur_m, dplus, dminus, pente_moy
 
 total_km_trace = float(df["dist_km_cal"].iloc[-1])
-km_start_int = int(np.floor(km_start))
-km_end_int = int(np.ceil(km_end))
+
+# bornes alignées sur le pas choisi
+pas = float(pas_affichage_km)
+start_bin = math.floor(km_start / pas) * pas
+end_bin = math.ceil(km_end / pas) * pas
 
 rows = []
-for k in range(km_start_int, km_end_int):
-    a = max(float(k), km_start)
-    b = min(float(k + 1), km_end)
+current = start_bin
+
+while current < end_bin:
+    a = max(current, km_start)
+    b = min(current + pas, km_end)
+
     if b <= a:
+        current += pas
         continue
+
     df_k = _slice_km_segment(df, a, b)
     longueur_m, dplus_m, dminus_m, pente_moy_pct = _metrics_on_slice(df_k)
 
     rows.append({
         "Km départ": round(a, 1),
         "Km arrivée": round(b, 1),
-        "Longueur (km)": round((b - a), 1),
+        "Longueur (km)": round(b - a, 1),
         "D+ (m)": int(round(dplus_m)),
         "D- (m)": int(round(dminus_m)),
-        "Pente moy. (%)": f"{int(round(pente_moy_pct))}%",
+        "Pente moy. (%)": f"{pente_moy_pct:+.0f}%",
         "Km restant (trace)": round(max(total_km_trace - b, 0.0), 1),
     })
+
+    current += pas
 
 table_km = pd.DataFrame(rows)
 
 if table_km.empty:
-    st.info("Aucun kilomètre complet dans la plage sélectionnée. Élargis légèrement le tronçon.")
+    st.info("Aucune tranche disponible dans la plage sélectionnée.")
 else:
     st.dataframe(table_km, use_container_width=True, hide_index=True)
-    # Export CSV
     df_to_csv_download_button(
         table_km,
-        "⬇️ Exporter le détail par km (CSV)",
-        f"detail_par_km_{km_start:.1f}-{km_end:.1f}.csv"
+        f"⬇️ Exporter le détail par tranche de {int(pas_affichage_km)} km (CSV)",
+        f"detail_par_{int(pas_affichage_km)}km_{km_start:.1f}-{km_end:.1f}.csv"
     )
 
 
@@ -1226,11 +1251,35 @@ else:
             km_end_int = int(np.ceil(km1))
 
             rows_up = []
-            for k in range(km_start_int, km_end_int):
-                a = max(float(k), km0)
-                b = min(float(k + 1), km1)
+            pas = float(pas_affichage_km)
+            start_bin = math.floor(km0 / pas) * pas
+            end_bin = math.ceil(km1 / pas) * pas
+            
+            current = start_bin
+            rows_up = []   # ou rows_dn
+            
+            while current < end_bin:
+                a = max(current, km0)
+                b = min(current + pas, km1)
+            
                 if b <= a:
+                    current += pas
                     continue
+            
+                df_k = _slice_km_segment(df, a, b)
+                longueur_m, dplus_m, dminus_m, pente_moy_pct = _metrics_on_slice(df_k)
+            
+                rows_up.append({   # ou rows_dn
+                    "Km départ": round(a, 1),
+                    "Km arrivée": round(b, 1),
+                    "Longueur (km)": round((b - a), 1),
+                    "D+ (m)": int(round(dplus_m)),
+                    "D- (m)": int(round(dminus_m)),
+                    "Pente moy. (%)": f"{pente_moy_pct:+.0f}%",
+                    "Km restant (trace)": round(max(total_km_trace - b, 0.0), 1),
+                })
+            
+                current += pas
 
                 df_k = _slice_km_segment(df, a, b)
                 longueur_m, dplus_m, dminus_m, pente_moy_pct = _metrics_on_slice(df_k)
@@ -1329,7 +1378,7 @@ else:
 
         # Répartition pentes (descente) pour ce segment — via la répartition standard, puis filtre négatif
         st.markdown("**Répartition des pentes (descente) — segment sélectionné**")
-        df_seg_sel = df[(df["dist_km"] >= km0) & (df["dist_km"] <= km1)].copy()
+        df_seg_sel = df[(df["dist_km_cal"] >= km0) & (df["dist_km_cal"] <= km1)].copy()
         dist_all = slope_distribution_by_5pct(df_seg_sel)  # distribution complète (±)
         dist_dn = filter_distribution_by_sign(dist_all, sign="down")
 
