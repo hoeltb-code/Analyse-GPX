@@ -41,6 +41,16 @@ def haversine(lat1, lon1, lat2, lon2):
     a = math.sin(dphi/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dlambda/2)**2
     return 2 * R * math.asin(math.sqrt(a))
 
+# 15 avril----
+def distance_3d(lat1, lon1, ele1, lat2, lon2, ele2):
+    """Distance 3D = distance horizontale + delta altitude."""
+    d2d = haversine(lat1, lon1, lat2, lon2)
+    if pd.isna(ele1) or pd.isna(ele2):
+        return d2d
+    dz = float(ele2) - float(ele1)
+    return math.sqrt(d2d**2 + dz**2)
+
+# 15 avril----
 
 def smooth_series(y: np.ndarray, fenetre_m: int, x_m: np.ndarray) -> np.ndarray:
     if fenetre_m <= 1:
@@ -54,6 +64,36 @@ def smooth_series(y: np.ndarray, fenetre_m: int, x_m: np.ndarray) -> np.ndarray:
         out[i] = np.nanmean(y[mask]) if np.any(mask) else y[i]
     out[np.isnan(out)] = y[np.isnan(out)]
     return out
+
+# 15 avril----
+def recompute_distances_with_smoothed_elevation(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Recalcule :
+    - dist_m_horiz / dist_km_horiz : distance horizontale pure
+    - dist_m / dist_km             : distance 3D basée sur ele_smooth
+    """
+    if df.empty or len(df) < 2:
+        df["dist_m_horiz"] = df.get("dist_m", 0.0)
+        df["dist_km_horiz"] = df["dist_m_horiz"] / 1000.0
+        return df
+
+    # Sauvegarde de la distance horizontale d'origine
+    df["dist_m_horiz"] = df["dist_m"].copy()
+    df["dist_km_horiz"] = df["dist_m_horiz"] / 1000.0
+
+    dist3d_steps = [0.0]
+    for i in range(1, len(df)):
+        d = distance_3d(
+            df.lat.iloc[i-1], df.lon.iloc[i-1], df.ele_smooth.iloc[i-1],
+            df.lat.iloc[i],   df.lon.iloc[i],   df.ele_smooth.iloc[i]
+        )
+        dist3d_steps.append(d)
+
+    df["dist_m"] = np.cumsum(dist3d_steps)
+    df["dist_km"] = df["dist_m"] / 1000.0
+    return df
+
+# 15 avril----
 
 
 # ---------- Parsing GPX -> DataFrame ----------
@@ -794,24 +834,50 @@ if df.empty:
     st.stop()
 
 # Lissage altitude
+#df["ele"] = df["ele"].astype(float)
+#df["ele_smooth"] = smooth_series(df["ele"].to_numpy(), lissage_m, df["dist_m"].to_numpy())
+#
+# D+ / D- global à partir de la série lissée
+#de_all = np.r_[0.0, np.diff(df["ele_smooth"])]
+#Dplus = float(np.sum(de_all[de_all > 0]))
+#Dminus = float(-np.sum(de_all[de_all < 0]))
+#dist_tot_km = df["dist_km"].iloc[-1]
+#alt_min = float(np.nanmin(df["ele_smooth"]))
+#alt_max = float(np.nanmax(df["ele_smooth"]))
+
+# 15 avril-----
+# Lissage altitude
 df["ele"] = df["ele"].astype(float)
-df["ele_smooth"] = smooth_series(df["ele"].to_numpy(), lissage_m, df["dist_m"].to_numpy())
+
+# Le lissage se fait sur la distance horizontale initiale
+dist_ref_m = df["dist_m"].to_numpy().copy()
+df["ele_smooth"] = smooth_series(df["ele"].to_numpy(), lissage_m, dist_ref_m)
+
+# Recalcul des distances avec altitude lissée
+df = recompute_distances_with_smoothed_elevation(df)
 
 # D+ / D- global à partir de la série lissée
 de_all = np.r_[0.0, np.diff(df["ele_smooth"])]
 Dplus = float(np.sum(de_all[de_all > 0]))
 Dminus = float(-np.sum(de_all[de_all < 0]))
+
 dist_tot_km = df["dist_km"].iloc[-1]
 alt_min = float(np.nanmin(df["ele_smooth"]))
 alt_max = float(np.nanmax(df["ele_smooth"]))
 
+# 15 avril---
+
 # Bandeau résumé
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Distance totale", f"{dist_tot_km:.2f} km")
-c2.metric("D+", f"{int(round(Dplus))} m")
-c3.metric("D-", f"{int(round(Dminus))} m")
-c4.metric("Alt. min", f"{int(round(alt_min))} m")
-c5.metric("Alt. max", f"{int(round(alt_max))} m")
+dist_tot_km_horiz = df["dist_km_horiz"].iloc[-1]
+dist_tot_km_3d = df["dist_km"].iloc[-1]
+
+c1, c2, c3, c4, c5, c6 = st.columns(6)
+c1.metric("Distance horiz.", f"{dist_tot_km_horiz:.2f} km")
+c2.metric("Distance 3D", f"{dist_tot_km_3d:.2f} km")
+c3.metric("D+", f"{int(round(Dplus))} m")
+c4.metric("D-", f"{int(round(Dminus))} m")
+c5.metric("Alt. min", f"{int(round(alt_min))} m")
+c6.metric("Alt. max", f"{int(round(alt_max))} m")
 
 st.markdown("---")
 
