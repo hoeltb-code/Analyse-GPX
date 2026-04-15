@@ -1,10 +1,3 @@
-# Analyse_GPX.py
-# App Streamlit FR : analyse GPX, slider de tronçon, métriques tronçon, histogramme pente par classes de 5%,
-# détection de segments remarquables avec tolérance D- en montée / D+ en descente, export PNG/CSV.
-#ATTENTION ATTENTION, JE COMMENCE A MODIFIER
-#ATTENTION ATTENTION, JE COMMENCE A MODIFIER
-
-
 import io
 import math
 from typing import Tuple
@@ -19,9 +12,9 @@ from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 def plot_segment_overlay(df_full: pd.DataFrame, km0: float, km1: float, title: str, filename: str):
     """Trace le profil complet en gris + le tronçon [km0, km1] en orange gras."""
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(df_full["dist_km"], df_full["ele_smooth"], linewidth=1.0, color="0.7")  # profil complet en gris
-    mask = (df_full["dist_km"] >= km0) & (df_full["dist_km"] <= km1)
-    ax.plot(df_full.loc[mask, "dist_km"], df_full.loc[mask, "ele_smooth"], linewidth=3.0, color="orange")
+    ax.plot(df_full["dist_km_cal"], df_full["ele_smooth"], linewidth=1.0, color="0.7")
+    mask = (df_full["dist_km_cal"] >= km0) & (df_full["dist_km_cal"] <= km1)
+    ax.plot(df_full.loc[mask, "dist_km_cal"], df_full.loc[mask, "ele_smooth"], linewidth=3.0, color="orange")
     ax.set_xlabel("Distance (km)")
     ax.set_ylabel("Altitude (m)")
     ax.set_title(title)
@@ -93,6 +86,33 @@ def recompute_distances_with_smoothed_elevation(df: pd.DataFrame) -> pd.DataFram
     df["dist_km"] = df["dist_m"] / 1000.0
     return df
 
+def calibrate_distance_to_target(df: pd.DataFrame, target_km: float) -> pd.DataFrame:
+    """
+    Conserve la distance GPS brute et crée une distance recalée qui finit exactement à target_km.
+    """
+    if df.empty:
+        return df
+
+    measured_km = float(df["dist_km"].iloc[-1])
+    if measured_km <= 0:
+        df["dist_m_gps"] = df["dist_m"].copy()
+        df["dist_km_gps"] = df["dist_km"].copy()
+        df["dist_m_cal"] = df["dist_m"].copy()
+        df["dist_km_cal"] = df["dist_km"].copy()
+        df["dist_coef"] = 1.0
+        return df
+
+    coef = target_km / measured_km
+
+    df["dist_m_gps"] = df["dist_m"].copy()
+    df["dist_km_gps"] = df["dist_km"].copy()
+
+    df["dist_m_cal"] = df["dist_m_gps"] * coef
+    df["dist_km_cal"] = df["dist_m_cal"] / 1000.0
+    df["dist_coef"] = coef
+
+    return df
+
 # 15 avril----
 
 
@@ -160,8 +180,8 @@ def detect_segments_remarquables(
         ])
 
     # Vecteurs
-    dist_m = df["dist_m"].to_numpy()
-    dist_km = df["dist_km"].to_numpy()
+    dist_m = df["dist_m_cal"].to_numpy()
+    dist_km = df["dist_km_cal"].to_numpy()
     ele = df["ele"].to_numpy().astype(float)
 
     dd = np.r_[np.nan, np.diff(dist_m)]        # m
@@ -277,7 +297,7 @@ def df_to_csv_download_button(df: pd.DataFrame, label: str, filename: str):
 def compute_troncon_metrics(df_seg: pd.DataFrame) -> Tuple[float, float, float]:
     if df_seg.empty:
         return 0.0, 0.0, 0.0
-    dist_km = float(df_seg["dist_km"].iloc[-1] - df_seg["dist_km"].iloc[0])
+    dist_km = float(df_seg["dist_km_cal"].iloc[-1] - df_seg["dist_km_cal"].iloc[0])
     de = np.r_[0.0, np.diff(df_seg["ele_smooth"])]
     dplus = float(np.sum(de[de > 0]))
     dminus = float(-np.sum(de[de < 0]))
@@ -726,7 +746,7 @@ def kml_km_markers_bytes(
         return b""
     elev_col = "ele_smooth" if (use_smoothed_elev and "ele_smooth" in df_full.columns) else "ele"
 
-    x = df_full["dist_km"].to_numpy(float)
+    x = df_full["dist_km_cal"].to_numpy(float)
     lat = df_full["lat"].to_numpy(float)
     lon = df_full["lon"].to_numpy(float)
     ele = df_full[elev_col].to_numpy(float)
@@ -778,6 +798,14 @@ st.sidebar.header("⚙️ Paramètres")
 uploaded = st.sidebar.file_uploader("📂 Dépose ta trace GPX", type=["gpx"])
 
 lissage_m = st.sidebar.number_input("Lissage altitude (m) — influe sur D+/D-", 0, 200, 15, 1)
+distance_cible_km = st.sidebar.number_input(
+    "Distance cible officielle (km)",
+    min_value=0.1,
+    max_value=500.0,
+    value=42.195,
+    step=0.001,
+    help="La trace sera recalée pour finir exactement à cette distance."
+)
 seuil_pente_pct = st.sidebar.number_input("Seuil de pente (%)", 0.0, 100.0, 5.0, 0.5)
 deniv_min_m = st.sidebar.number_input("Dénivelé min. d’un segment remarquable (m)", 10.0, 5000.0, 80.0, 10.0)
 dist_min_m = st.sidebar.number_input("Distance min. d’un segment (m)", 10.0, 50000.0, 400.0, 10.0)
@@ -847,44 +875,42 @@ if df.empty:
 
 # 15 avril-----
 # Lissage altitude
+# Lissage altitude
 df["ele"] = df["ele"].astype(float)
+df["ele_smooth"] = smooth_series(df["ele"].to_numpy(), lissage_m, df["dist_m"].to_numpy())
 
-# Le lissage se fait sur la distance horizontale initiale
-dist_ref_m = df["dist_m"].to_numpy().copy()
-df["ele_smooth"] = smooth_series(df["ele"].to_numpy(), lissage_m, dist_ref_m)
-
-# Recalcul des distances avec altitude lissée
-df = recompute_distances_with_smoothed_elevation(df)
+# Recalage distance sur la cible officielle
+df = calibrate_distance_to_target(df, distance_cible_km)
 
 # D+ / D- global à partir de la série lissée
 de_all = np.r_[0.0, np.diff(df["ele_smooth"])]
 Dplus = float(np.sum(de_all[de_all > 0]))
 Dminus = float(-np.sum(de_all[de_all < 0]))
 
-dist_tot_km = df["dist_km"].iloc[-1]
+dist_tot_km_gps = df["dist_km_gps"].iloc[-1]
+dist_tot_km_cal = df["dist_km_cal"].iloc[-1]
 alt_min = float(np.nanmin(df["ele_smooth"]))
 alt_max = float(np.nanmax(df["ele_smooth"]))
 
 # 15 avril---
 
 # Bandeau résumé
-dist_tot_km_horiz = df["dist_km_horiz"].iloc[-1]
-dist_tot_km_3d = df["dist_km"].iloc[-1]
+coef_dist = float(df["dist_coef"].iloc[0]) if "dist_coef" in df.columns else 1.0
 
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Distance horiz.", f"{dist_tot_km_horiz:.2f} km")
-c2.metric("Distance 3D", f"{dist_tot_km_3d:.2f} km")
-c3.metric("D+", f"{int(round(Dplus))} m")
-c4.metric("D-", f"{int(round(Dminus))} m")
-c5.metric("Alt. min", f"{int(round(alt_min))} m")
+c1.metric("Distance GPX", f"{dist_tot_km_gps:.3f} km")
+c2.metric("Distance cible", f"{dist_tot_km_cal:.3f} km")
+c3.metric("Coef distance", f"{coef_dist:.5f}")
+c4.metric("D+", f"{int(round(Dplus))} m")
+c5.metric("D-", f"{int(round(Dminus))} m")
 c6.metric("Alt. max", f"{int(round(alt_max))} m")
 
 st.markdown("---")
 
 # === SLIDER TRONÇON ===
 st.subheader("🎚️ Sélection du tronçon à analyser")
-min_km = float(df["dist_km"].min())
-max_km = float(df["dist_km"].max())
+min_km = float(df["dist_km_cal"].min())
+max_km = float(df["dist_km_cal"].max())
 troncon_km = st.slider(
     "Choisis la portion (en km) :",
     min_value=min_km, max_value=max_km,
@@ -892,7 +918,7 @@ troncon_km = st.slider(
     step=0.01
 )
 km_start, km_end = troncon_km
-mask_seg = (df["dist_km"] >= km_start) & (df["dist_km"] <= km_end)
+mask_seg = (df["dist_km_cal"] >= km_start) & (df["dist_km_cal"] <= km_end)
 df_seg = df.loc[mask_seg].copy()
 if df_seg.empty:
     st.info("Le tronçon sélectionné est trop court. Étends un peu la plage.")
@@ -901,8 +927,8 @@ if df_seg.empty:
 # === GRAPHIQUE PROFIL (responsive) ===
 st.subheader("🗻 Profil altimétrique (tronçon)")
 fig1, ax1 = plt.subplots(figsize=(10, 4))
-ax1.plot(df["dist_km"], df["ele_smooth"], linewidth=1.0, alpha=0.25)  # contexte
-ax1.plot(df_seg["dist_km"], df_seg["ele_smooth"], linewidth=1.8)      # tronçon
+ax1.plot(df["dist_km_cal"], df["ele_smooth"], linewidth=1.0, alpha=0.25)
+ax1.plot(df_seg["dist_km_cal"], df_seg["ele_smooth"], linewidth=1.8)
 ax1.set_xlabel("Distance (km)")
 ax1.set_ylabel("Altitude (m)")
 ax1.grid(True, alpha=0.3)
@@ -939,28 +965,38 @@ kml_export_block(
 st.subheader("📏 Détail par kilomètre du tronçon")
 
 def _slice_km_segment(df_full: pd.DataFrame, km_a: float, km_b: float) -> pd.DataFrame:
-    """Sous-échantillonne df_full sur [km_a, km_b] en garantissant des points aux bornes (interp)."""
-    x = df_full["dist_km"].to_numpy()
+    """
+    Sous-échantillonne df_full sur [km_a, km_b] selon la distance recalée,
+    en garantissant des points aux bornes par interpolation.
+    """
+    x = df_full["dist_km_cal"].to_numpy()
     y = df_full["ele_smooth"].to_numpy()
-    m = df_full["dist_m"].to_numpy()
+    m = df_full["dist_m_cal"].to_numpy()
 
     mask = (x >= km_a) & (x <= km_b)
-    xs = x[mask]; ys = y[mask]; ms = m[mask]
+    xs = x[mask]
+    ys = y[mask]
+    ms = m[mask]
 
-    # Assurer un point à km_a
     if xs.size == 0 or xs[0] > km_a:
         ele_a = float(np.interp(km_a, x, y))
+        m_a = float(np.interp(km_a, x, m))
         xs = np.r_[km_a, xs]
         ys = np.r_[ele_a, ys]
-        ms = np.r_[km_a * 1000.0, ms]
-    # Assurer un point à km_b
-    if xs[-1] < km_b:
+        ms = np.r_[m_a, ms]
+
+    if xs.size == 0 or xs[-1] < km_b:
         ele_b = float(np.interp(km_b, x, y))
+        m_b = float(np.interp(km_b, x, m))
         xs = np.r_[xs, km_b]
         ys = np.r_[ys, ele_b]
-        ms = np.r_[ms, km_b * 1000.0]
+        ms = np.r_[ms, m_b]
 
-    return pd.DataFrame({"dist_km": xs, "ele_smooth": ys, "dist_m": ms})
+    return pd.DataFrame({
+        "dist_km": xs,
+        "ele_smooth": ys,
+        "dist_m": ms
+    })
 
 def _metrics_on_slice(df_slice: pd.DataFrame):
     """Retourne (longueur_m, dplus_m, dminus_m, pente_moy_pct)."""
@@ -974,7 +1010,7 @@ def _metrics_on_slice(df_slice: pd.DataFrame):
     pente_moy = ((dplus - dminus) / longueur_m * 100.0) if longueur_m > 0 else 0.0
     return longueur_m, dplus, dminus, pente_moy
 
-total_km_trace = float(df["dist_km"].iloc[-1])
+total_km_trace = float(df["dist_km_cal"].iloc[-1])
 km_start_int = int(np.floor(km_start))
 km_end_int = int(np.ceil(km_end))
 
@@ -1115,7 +1151,7 @@ else:
 
         # Répartition pentes (montée) pour ce segment — via la répartition standard, puis filtre positif
         st.markdown("**Répartition des pentes (montée) — segment sélectionné**")
-        df_seg_sel = df[(df["dist_km"] >= km0) & (df["dist_km"] <= km1)].copy()
+        df_seg_sel = df[(df["dist_km_cal"] >= km0) & (df["dist_km_cal"] <= km1)].copy()
         dist_all = slope_distribution_by_5pct(df_seg_sel)  # distribution complète (±)
         dist_up = filter_distribution_by_sign(dist_all, sign="up")
 
@@ -1185,7 +1221,7 @@ else:
             # === DÉTAIL PAR KILOMÈTRE — MONTÉE SÉLÉCTIONNÉE ===
             st.markdown("**📏 Détail par kilomètre — montée sélectionnée**")
 
-            total_km_trace = float(df["dist_km"].iloc[-1])
+            total_km_trace = float(df["dist_km_cal"].iloc[-1])
             km_start_int = int(np.floor(km0))
             km_end_int = int(np.ceil(km1))
 
