@@ -797,7 +797,7 @@ st.caption("Slider de tronçon, métriques locales, répartition de pente, segme
 st.sidebar.header("⚙️ Paramètres")
 uploaded = st.sidebar.file_uploader("📂 Dépose ta trace GPX", type=["gpx"])
 
-lissage_m = st.sidebar.number_input("Lissage altitude (m) — influe sur D+/D-", 0, 200, 15, 1)
+lissage_m = st.sidebar.number_input("Lissage altitude (m) — influe sur D+/D-", 0, 1000, 15, 1)
 distance_cible_km = st.sidebar.number_input(
     "Distance cible officielle (km)",
     min_value=0.1,
